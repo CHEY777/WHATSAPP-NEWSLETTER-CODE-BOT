@@ -1,0 +1,16 @@
+{
+  "name": "my-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "A WhatsApp newsletter bot using Baileys",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "chey",
+  "license": "MIT",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.6.0",
+    "@hapi/boom": "^10.0.0"
+  }
+}
