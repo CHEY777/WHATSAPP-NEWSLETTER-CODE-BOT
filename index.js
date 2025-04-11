@@ -1,42 +1,51 @@
-import makeWASocket, { DisconnectReason, useMultiFileAuthState } from '@whiskeysockets/baileys';
-import { Boom } from '@hapi/boom';
+import makeWASocket, {
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    useMultiFileAuthState
+} from '@whiskeysockets/baileys'
+import { Boom } from '@hapi/boom'
+import P from 'pino'
 
-const startBot = async () => {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
+    const { version, isLatest } = await fetchLatestBaileysVersion()
 
-  const sock = makeWASocket({
-    auth: state,
-    printQRInTerminal: true
-  });
+    console.log(`Using Baileys version: ${version}, isLatest: ${isLatest}`)
 
-  sock.ev.on('creds.update', saveCreds);
+    const sock = makeWASocket({
+        version,
+        logger: P({ level: 'silent' }),
+        printQRInTerminal: true,
+        auth: state
+    })
 
-  sock.ev.on('messages.upsert', async ({ messages }) => {
-    const m = messages[0];
-    if (!m.message) return;
+    sock.ev.on('creds.update', saveCreds)
 
-    const text = m.message?.conversation || m.message?.extendedTextMessage?.text || '';
-    const cmd = text.startsWith('!') ? text.slice(1).split(' ')[0].toLowerCase() : '';
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update
+        if (connection === 'close') {
+            const shouldReconnect =
+                (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut
+            console.log('Connection closed. Reconnecting...', shouldReconnect)
+            if (shouldReconnect) {
+                startBot()
+            }
+        } else if (connection === 'open') {
+            console.log('Bot is connected')
+        }
+    })
 
-    if (cmd === 'log') {
-      const info = m.message?.extendedTextMessage?.contextInfo?.forwardedNewsletterMessageInfo;
+    sock.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0]
+        if (!msg.message || msg.key.fromMe) return
 
-      if (!info) {
-        await sock.sendMessage(m.key.remoteJid, { text: '❌ No newsletter info found.' }, { quoted: m });
-      } else {
-        await sock.sendMessage(m.key.remoteJid, {
-          text: `✅ Newsletter Info:\n\n*Name:* ${info.newsletterName}\n*JID:* ${info.newsletterJid}\n*Msg ID:* ${info.serverMessageId}`
-        }, { quoted: m });
-      }
-    }
-  });
+        const sender = msg.key.remoteJid
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text
 
-  sock.ev.on('connection.update', (update) => {
-    const { connection, lastDisconnect } = update;
-    if (connection === 'close' && lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) {
-      startBot();
-    }
-  });
-};
+        if (text?.toLowerCase() === 'ping') {
+            await sock.sendMessage(sender, { text: 'Pong!' })
+        }
+    })
+}
 
-startBot();
+startBot()
